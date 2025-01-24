@@ -159,7 +159,8 @@ protocol ReviewViewControllerDelegate: AnyObject {
                                        menuButton: UIButton)
 }
 
-class ReviewViewController: UIViewController, UITextFieldDelegate, SubjectDelegate {
+class ReviewViewController: UIViewController, UITextFieldDelegate, SubjectDelegate,
+  SwipeableContainerDelegate {
   private var kanaInput: TKMKanaInput!
   private let hapticGenerator = UIImpactFeedbackGenerator(style: UIImpactFeedbackGenerator
     .FeedbackStyle.light)
@@ -184,6 +185,8 @@ class ReviewViewController: UIViewController, UITextFieldDelegate, SubjectDelega
   private var previousSubjectLabel: UILabel?
 
   private var isPracticeSession = false
+
+  private var swipeContainer: SwipeableContainer!
 
   // These are set to match the keyboard animation.
   private var animationDuration: Double = kDefaultAnimationDuration
@@ -302,11 +305,20 @@ class ReviewViewController: UIViewController, UITextFieldDelegate, SubjectDelega
 
     questionLabel.isUserInteractionEnabled = false
 
+    // set up swipe gestures for answering
+    swipeContainer = SwipeableContainer(questionLabel: questionLabel,
+                                        gradientBackground: questionBackground)
+    swipeContainer.delegate = self
+
+    // Add container view behind the question label
+    swipeContainer.frame = questionBackground.bounds
+    view.insertSubview(swipeContainer, aboveSubview: questionBackground)
+
     // font cycling tap recognizers
     func setupTapQuestionRecognizer(numberOfTapsRequired: Int = 1) -> UITapGestureRecognizer {
       let tapRecognizer = UITapGestureRecognizer(target: self,
                                                  action: #selector(didTapQuestionView))
-      questionBackground.addGestureRecognizer(tapRecognizer)
+      swipeContainer.addGestureRecognizer(tapRecognizer)
       tapRecognizer.numberOfTapsRequired = numberOfTapsRequired
       return tapRecognizer
     }
@@ -318,20 +330,6 @@ class ReviewViewController: UIViewController, UITextFieldDelegate, SubjectDelega
     // make sure to fail the tap gesture recognizers with less taps
     singleTapRecognizer.require(toFail: doubleTapRecognizer)
     doubleTapRecognizer.require(toFail: tripleTapRecognizer)
-
-    // set up swipe gestures for answering
-    func setupSwipeQuestionRecognizer(withDirection direction: UISwipeGestureRecognizer
-      .Direction) -> UISwipeGestureRecognizer {
-      let swipeRecognizer = UISwipeGestureRecognizer(target: self,
-                                                     action: #selector(didSwipeQuestionLabel))
-      swipeRecognizer.direction = direction
-      questionBackground.addGestureRecognizer(swipeRecognizer)
-      return swipeRecognizer
-    }
-    _ = setupSwipeQuestionRecognizer(withDirection: .right)
-    _ = setupSwipeQuestionRecognizer(withDirection: .left)
-    _ = setupSwipeQuestionRecognizer(withDirection: .down)
-    _ = setupSwipeQuestionRecognizer(withDirection: .up)
 
     // add a tap gesture for the answer bar for submitting in anki mode
     let tapRecognizer = UITapGestureRecognizer(target: self, action: #selector(didTapAnswerBar))
@@ -916,6 +914,7 @@ class ReviewViewController: UIViewController, UITextFieldDelegate, SubjectDelega
   }
 
   @objc func didTapQuestionView(_ sender: UITapGestureRecognizer) {
+    print("Tapped Question")
     switch sender.numberOfTapsRequired {
     case 1: toggleFont()
     case 2: showNextCustomFont()
@@ -1182,35 +1181,6 @@ class ReviewViewController: UIViewController, UITextFieldDelegate, SubjectDelega
                               updateFirstResponder: true)
   }
 
-  @objc func didSwipeQuestionLabel(_ sender: UISwipeGestureRecognizer) {
-    // do not allow swiping when user is not in anki mode
-    if !Settings.ankiMode { return }
-
-    let answersRevealed = !subjectDetailsView.isHidden
-
-    switch sender.direction {
-    case .right:
-      markOverrideCorrect()
-    case .left:
-      if answersRevealed {
-        // call the same function that is used by the synonyms menu
-        markIncorrect()
-      } else {
-        markAnswer(.Incorrect)
-      }
-    case .up:
-      // don't show again when already in details
-      if answersRevealed { return }
-      revealAnswerButtonPressed(revealAnswerButton!)
-    case .down:
-      if Settings.allowSkippingReviews {
-        markAnswer(.AskAgainLater)
-        return
-      }
-    default: break
-    }
-  }
-
   @objc func didTapAnswerBar(_: UITapGestureRecognizer) {
     if Settings.ankiMode {
       if !isAnimatingSubjectDetailsView { submit() }
@@ -1275,6 +1245,45 @@ class ReviewViewController: UIViewController, UITextFieldDelegate, SubjectDelega
   // repeat the action continuously on all subsequent reviews
   override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
     super.canPerformAction(action, withSender: sender)
+  }
+
+  // MARK: - Swipe Gesture Delegate
+
+  // TODO: kill switch for outside anki mode: if !Settings.ankiMode { return }
+  func containerDidSwipeRight(_: SwipeableContainer) {
+    // Handle correct answer
+    if !subjectDetailsView.isHidden {
+      // call the same function that is used by the synonyms menu to mark correct
+      markOverrideCorrect()
+    } else {
+      // use the marking function for outside the details view
+      markAnswer(.Correct)
+    }
+  }
+
+  func containerDidSwipeLeft(_: SwipeableContainer) {
+    // Handle incorrect answer
+    if !subjectDetailsView.isHidden {
+      // call the same function that is used by the synonyms menu to mark incorrect
+      markIncorrect()
+    } else {
+      // use the marking function for outside the details view
+      markAnswer(.Incorrect)
+    }
+  }
+
+  func containerDidSwipeUp(_: SwipeableContainer) {
+    // Show details (don't show again when already in details)
+    if !subjectDetailsView.isHidden { return }
+    revealAnswerButtonPressed(revealAnswerButton!)
+  }
+
+  func containerDidSwipeDown(_: SwipeableContainer) {
+    // Skip question
+    if Settings.allowSkippingReviews {
+      markAnswer(.AskAgainLater)
+      return
+    }
   }
 
   // MARK: - SubjectDelegate

@@ -306,13 +306,18 @@ class ReviewViewController: UIViewController, UITextFieldDelegate, SubjectDelega
     questionLabel.isUserInteractionEnabled = false
 
     // set up swipe gestures for answering
-    swipeContainer = SwipeableContainer(questionLabel: questionLabel,
-                                        gradientBackground: questionBackground)
+    swipeContainer = SwipeableContainer()
     swipeContainer.delegate = self
+    swipeContainer.translatesAutoresizingMaskIntoConstraints = false
+    view.insertSubview(swipeContainer, belowSubview: questionLabel)
 
-    // Add container view behind the question label
-    swipeContainer.frame = questionBackground.bounds
-    view.insertSubview(swipeContainer, aboveSubview: questionBackground)
+    // Add constraints to match question background
+    NSLayoutConstraint.activate([
+      swipeContainer.leadingAnchor.constraint(equalTo: questionBackground.leadingAnchor),
+      swipeContainer.trailingAnchor.constraint(equalTo: questionBackground.trailingAnchor),
+      swipeContainer.topAnchor.constraint(equalTo: questionBackground.topAnchor),
+      swipeContainer.bottomAnchor.constraint(equalTo: questionBackground.bottomAnchor),
+    ])
 
     // font cycling tap recognizers
     func setupTapQuestionRecognizer(numberOfTapsRequired: Int = 1) -> UITapGestureRecognizer {
@@ -727,6 +732,7 @@ class ReviewViewController: UIViewController, UITextFieldDelegate, SubjectDelega
                                          setupContextFunc: ((AnimationContext) -> Void)?,
                                          updateFirstResponder: Bool) {
     let cheats = delegate.allowsCheats(forReviewItem: session.activeTask)
+    updateSwipeConfiguration()
 
     if shown {
       subjectDetailsView.isHidden = false
@@ -914,7 +920,6 @@ class ReviewViewController: UIViewController, UITextFieldDelegate, SubjectDelega
   }
 
   @objc func didTapQuestionView(_ sender: UITapGestureRecognizer) {
-    print("Tapped Question")
     switch sender.numberOfTapsRequired {
     case 1: toggleFont()
     case 2: showNextCustomFont()
@@ -955,6 +960,7 @@ class ReviewViewController: UIViewController, UITextFieldDelegate, SubjectDelega
   }
 
   func quickSettingsChanged() {
+    updateSwipeConfiguration()
     if subjectDetailsView.isHidden {
       updateViewForCurrentTask(updateFirstResponder: false)
     }
@@ -1249,7 +1255,6 @@ class ReviewViewController: UIViewController, UITextFieldDelegate, SubjectDelega
 
   // MARK: - Swipe Gesture Delegate
 
-  // TODO: kill switch for outside anki mode: if !Settings.ankiMode { return }
   func containerDidSwipeRight(_: SwipeableContainer) {
     // Handle correct answer
     if !subjectDetailsView.isHidden {
@@ -1272,18 +1277,19 @@ class ReviewViewController: UIViewController, UITextFieldDelegate, SubjectDelega
     }
   }
 
-  func containerDidSwipeUp(_: SwipeableContainer) {
-    // Show details (don't show again when already in details)
-    if !subjectDetailsView.isHidden { return }
-    revealAnswerButtonPressed(revealAnswerButton!)
-  }
-
   func containerDidSwipeDown(_: SwipeableContainer) {
     // Skip question
     if Settings.allowSkippingReviews {
       markAnswer(.AskAgainLater)
       return
     }
+  }
+
+  private func updateSwipeConfiguration() {
+    var config = SwipeableContainer.SwipeConfiguration()
+    config.isRightEnabled = Settings.ankiMode
+    config.isLeftEnabled = Settings.ankiMode
+    swipeContainer.updateSwipeConfiguration(config)
   }
 
   // MARK: - SubjectDelegate

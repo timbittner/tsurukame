@@ -1289,6 +1289,7 @@ class ReviewViewController: UIViewController, UITextFieldDelegate, SubjectDelega
     var config = SwipeableContainer.SwipeConfiguration()
     config.isRightEnabled = Settings.ankiMode
     config.isLeftEnabled = Settings.ankiMode
+    config.isDownEnabled = Settings.ankiMode && Settings.allowSkippingReviews
     swipeContainer.updateSwipeConfiguration(config)
   }
 

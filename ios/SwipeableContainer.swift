@@ -21,14 +21,14 @@ class SwipeableContainer: UIView {
 
   private let leftBanner: UIView
   private let rightBanner: UIView
+  private let topBanner: UIView
 
   private var initialPanPoint: CGPoint = .zero
   private var currentSwipeDirection: SwipeDirection?
   private var originalGradientColors: [CGColor] = []
 
   // Configuration
-  private let swipeThreshold: CGFloat = 150
-  private let angleThreshold: CGFloat = .pi / 8 // 22.5 degrees for diagonal detection
+  private let swipeThreshold: CGFloat = 150 // around 3cm depending on device
   private let kDefaultAnimationDuration: TimeInterval =
     0.25 // same as review view controller, maybe pass this around
 
@@ -36,6 +36,7 @@ class SwipeableContainer: UIView {
     swipeConfiguration = .allDisabled
     leftBanner = UIView()
     rightBanner = UIView()
+    topBanner = UIView()
 
     super.init(frame: frame)
 
@@ -52,14 +53,30 @@ class SwipeableContainer: UIView {
   private func setupBanners() {
     leftBanner.backgroundColor = TKMStyle.correctAnswerColor
     rightBanner.backgroundColor = TKMStyle.incorrectAnswerColor
+    topBanner.backgroundColor = TKMStyle.Color.grey33
 
     leftBanner.isHidden = true
     rightBanner.isHidden = true
+    topBanner.isHidden = true
 
     updateBannerFrames()
 
     addSubview(leftBanner)
     addSubview(rightBanner)
+    addSubview(topBanner)
+
+    // Add skip icon to top banner
+    let skipIcon = UIImageView(image: Asset.goforwardPlus.image)
+    skipIcon.tintColor = .white
+    skipIcon.translatesAutoresizingMaskIntoConstraints = false
+    topBanner.addSubview(skipIcon)
+
+    NSLayoutConstraint.activate([
+      skipIcon.centerXAnchor.constraint(equalTo: topBanner.centerXAnchor),
+      skipIcon.bottomAnchor.constraint(equalTo: topBanner.bottomAnchor, constant: -48),
+      skipIcon.widthAnchor.constraint(equalToConstant: 24),
+      skipIcon.heightAnchor.constraint(equalToConstant: 24),
+    ])
   }
 
   private func updateBannerFrames() {
@@ -67,6 +84,8 @@ class SwipeableContainer: UIView {
                               width: bounds.width, height: bounds.height)
     rightBanner.frame = CGRect(x: bounds.width, y: 0,
                                width: bounds.width, height: bounds.height)
+    topBanner.frame = CGRect(x: 0, y: -bounds.height,
+                             width: bounds.width, height: bounds.height)
   }
 
   override func layoutSubviews() {
@@ -100,19 +119,14 @@ class SwipeableContainer: UIView {
   private enum SwipeDirection {
     case left, right, down
 
-    static func determineDirection(from translation: CGPoint,
-                                   angleThreshold: CGFloat) -> SwipeDirection? {
-      let angle = atan2(translation.y, translation.x)
+    static func determineDirection(from translation: CGPoint) -> SwipeDirection? {
+      // Use predominantly vertical/horizontal movement to determine direction
+      let isVertical = abs(translation.y) > abs(translation.x)
 
-      switch angle {
-      case -angleThreshold ... angleThreshold:
-        return .right
-      case (.pi - angleThreshold) ... .pi, -(.pi) ... -(.pi - angleThreshold):
-        return .left
-      case (.pi / 2 - angleThreshold) ... (.pi / 2 + angleThreshold):
-        return .down
-      default:
-        return nil
+      if isVertical {
+        return translation.y > 0 ? .down : nil
+      } else {
+        return translation.x > 0 ? .right : .left
       }
     }
   }
@@ -139,8 +153,7 @@ class SwipeableContainer: UIView {
     case .began:
       initialPanPoint = gesture.location(in: self)
       currentSwipeDirection = SwipeDirection.determineDirection(from: CGPoint(x: translation.x,
-                                                                              y: translation.y),
-                                                                angleThreshold: angleThreshold)
+                                                                              y: translation.y))
 
       // Check if the determined direction is enabled
       guard let direction = currentSwipeDirection,
@@ -151,10 +164,9 @@ class SwipeableContainer: UIView {
 
       leftBanner.isHidden = false
       rightBanner.isHidden = false
+      topBanner.isHidden = false
 
     case .changed:
-      let progress = translation.x / swipeThreshold
-      let clampedProgress = max(-1.0, min(1.0, progress))
 
       guard let direction = currentSwipeDirection,
             isDirectionEnabled(direction) else {
@@ -163,21 +175,42 @@ class SwipeableContainer: UIView {
 
       // Animate banners
       UIView.animate(withDuration: 0.1) {
-        if clampedProgress > 0 {
+        switch direction {
+        case .down:
+          let maxDistance = min(self.bounds.height, 150)
+          let clampedTranslation = max(0, min(translation.y, maxDistance))
+          self.topBanner.frame.origin.y = -self.bounds.height + clampedTranslation
+        case .right:
           self.leftBanner.frame.origin.x = -self.bounds.width + (translation.x)
-          self.rightBanner.frame.origin.x = self.bounds.width
-        } else {
+        case .left:
           self.rightBanner.frame.origin.x = self.bounds.width + (translation.x)
-          self.leftBanner.frame.origin.x = -self.bounds.width
         }
       }
 
     case .ended:
       let velocity = gesture.velocity(in: self)
-      let isSignificant = abs(translation.x) > swipeThreshold || abs(velocity.x) > 1000
+      guard let direction = currentSwipeDirection else {
+        resetBanners()
+        return
+      }
 
-      if isSignificant, let direction = currentSwipeDirection, isDirectionEnabled(direction) {
-        let direction: SwipeDirection = translation.x > 0 ? .right : .left
+      let isSignificant: Bool
+      switch direction {
+      case .down:
+        // Only count velocity if still moving downward
+        let hasDownwardVelocity = velocity.y > 0
+        isSignificant = abs(translation.y) > min(bounds.height, swipeThreshold) ||
+          (hasDownwardVelocity && abs(velocity.y) > 1000)
+      case .left, .right:
+        // Only count velocity if moving in original direction
+        let isMovingRight = velocity.x > 0
+        let matchesDirection = (direction == .right && isMovingRight) ||
+          (direction == .left && !isMovingRight)
+        isSignificant = abs(translation.x) > swipeThreshold ||
+          (matchesDirection && abs(velocity.x) > 1000)
+      }
+
+      if isSignificant && isDirectionEnabled(direction) {
         animateSwipeCompletion(in: direction)
       } else {
         resetBanners()
@@ -191,7 +224,8 @@ class SwipeableContainer: UIView {
   // MARK: - Animation
 
   private func animateSwipeCompletion(in direction: SwipeDirection) {
-    let targetBanner = direction == .right ? leftBanner : rightBanner
+    let targetBanner = direction == .right ? leftBanner :
+      direction == .left ? rightBanner : topBanner
 
     UIView.animate(withDuration: kDefaultAnimationDuration, animations: {
       // First animation: fill screen
@@ -208,7 +242,7 @@ class SwipeableContainer: UIView {
         switch direction {
         case .right: self.delegate?.containerDidSwipeRight(self)
         case .left: self.delegate?.containerDidSwipeLeft(self)
-        case .down: break
+        case .down: self.delegate?.containerDidSwipeDown(self)
         }
 
         self.resetBanners()
@@ -223,9 +257,11 @@ class SwipeableContainer: UIView {
     }) { _ in
       self.leftBanner.isHidden = true
       self.rightBanner.isHidden = true
+      self.topBanner.isHidden = true
       // reset alpha after hiding to reduce flicker
       self.leftBanner.alpha = 1
       self.rightBanner.alpha = 1
+      self.topBanner.alpha = 1
     }
   }
 }

@@ -29,6 +29,7 @@ class SwipeableContainer: UIView {
 
   // Configuration
   private let swipeThreshold: CGFloat = 150 // around 3cm depending on device
+  private let angleThreshold: CGFloat = .pi / 8 // 22.5 degrees for diagonal detection
   private let kDefaultAnimationDuration: TimeInterval =
     0.25 // same as review view controller, maybe pass this around
 
@@ -119,8 +120,21 @@ class SwipeableContainer: UIView {
   private enum SwipeDirection {
     case left, right, down
 
-    static func determineDirection(from translation: CGPoint) -> SwipeDirection? {
-      // Use predominantly vertical/horizontal movement to determine direction
+    static func determineDirection(from translation: CGPoint,
+                                   angleThreshold: CGFloat) -> SwipeDirection? {
+      // Add minimum threshold to avoid detecting tiny movements
+      let minimumMovement: CGFloat = 10
+      if abs(translation.x) < minimumMovement && abs(translation.y) < minimumMovement {
+        return nil
+      }
+
+      // Check if movement is too diagonal
+      let angle = atan2(translation.y, translation.x)
+      let isInDeadZone = abs(abs(angle) - .pi / 4) < angleThreshold
+      if isInDeadZone {
+        return nil
+      }
+
       let isVertical = abs(translation.y) > abs(translation.x)
 
       if isVertical {
@@ -152,21 +166,20 @@ class SwipeableContainer: UIView {
     switch gesture.state {
     case .began:
       initialPanPoint = gesture.location(in: self)
-      currentSwipeDirection = SwipeDirection.determineDirection(from: CGPoint(x: translation.x,
-                                                                              y: translation.y))
-
-      // Check if the determined direction is enabled
-      guard let direction = currentSwipeDirection,
-            isDirectionEnabled(direction) else {
-        gesture.state = .cancelled
-        return
-      }
+      currentSwipeDirection = SwipeDirection.determineDirection(from: translation,
+                                                                angleThreshold: angleThreshold)
 
       leftBanner.isHidden = false
       rightBanner.isHidden = false
       topBanner.isHidden = false
 
     case .changed:
+
+      // keep checking until we have a direction
+      if currentSwipeDirection == nil {
+        currentSwipeDirection = SwipeDirection.determineDirection(from: translation,
+                                                                  angleThreshold: angleThreshold)
+      }
 
       guard let direction = currentSwipeDirection,
             isDirectionEnabled(direction) else {
@@ -195,19 +208,21 @@ class SwipeableContainer: UIView {
       }
 
       let isSignificant: Bool
+      let minimumDistance: CGFloat = 20 // Minimum distance required even with high velocity
+
       switch direction {
       case .down:
-        // Only count velocity if still moving downward
-        let hasDownwardVelocity = velocity.y > 0
+        let meetsMinimumDistance = abs(translation.y) >= minimumDistance
         isSignificant = abs(translation.y) > min(bounds.height, swipeThreshold) ||
-          (hasDownwardVelocity && abs(velocity.y) > 1000)
+          (meetsMinimumDistance && abs(velocity.y) > 1000)
       case .left, .right:
         // Only count velocity if moving in original direction
         let isMovingRight = velocity.x > 0
         let matchesDirection = (direction == .right && isMovingRight) ||
           (direction == .left && !isMovingRight)
+        let meetsMinimumDistance = abs(translation.x) >= minimumDistance
         isSignificant = abs(translation.x) > swipeThreshold ||
-          (matchesDirection && abs(velocity.x) > 1000)
+          (matchesDirection && meetsMinimumDistance && abs(velocity.x) > 1000)
       }
 
       if isSignificant && isDirectionEnabled(direction) {

@@ -309,7 +309,7 @@ class ReviewViewController: UIViewController, UITextFieldDelegate, SubjectDelega
     swipeContainer = SwipeableContainer()
     swipeContainer.delegate = self
     swipeContainer.translatesAutoresizingMaskIntoConstraints = false
-    view.insertSubview(swipeContainer, belowSubview: questionLabel)
+    view.insertSubview(swipeContainer, belowSubview: promptBackground)
 
     // Add constraints to match question background
     NSLayoutConstraint.activate([
@@ -732,7 +732,6 @@ class ReviewViewController: UIViewController, UITextFieldDelegate, SubjectDelega
                                          setupContextFunc: ((AnimationContext) -> Void)?,
                                          updateFirstResponder: Bool) {
     let cheats = delegate.allowsCheats(forReviewItem: session.activeTask)
-    updateSwipeConfiguration()
 
     if shown {
       subjectDetailsView.isHidden = false
@@ -751,6 +750,7 @@ class ReviewViewController: UIViewController, UITextFieldDelegate, SubjectDelega
         submitButton.isHidden = false
       }
     }
+    updateSwipeConfiguration()
 
     // Change the submit button icon.
     let submitButtonImage = shown ? forwardArrowImage :
@@ -836,6 +836,8 @@ class ReviewViewController: UIViewController, UITextFieldDelegate, SubjectDelega
         addSynonymButton.isHidden = true
       }
     }
+
+    updateSwipeConfiguration()
 
     // This makes sure taps are still processed and not ignored, even when the closing animation
     // after a button press was not completed
@@ -1267,14 +1269,10 @@ class ReviewViewController: UIViewController, UITextFieldDelegate, SubjectDelega
   }
 
   func containerDidSwipeLeft(_: SwipeableContainer) {
-    // Handle incorrect answer
-    if !subjectDetailsView.isHidden {
-      // call the same function that is used by the synonyms menu to mark incorrect
-      markIncorrect()
-    } else {
-      // use the marking function for outside the details view
-      markAnswer(.Incorrect)
+    if subjectDetailsView.isHidden {
+      _ = session.markAnswer(.Incorrect, isPracticeSession: isPracticeSession)
     }
+    randomTask()
   }
 
   func containerDidSwipeDown(_: SwipeableContainer) {
@@ -1283,6 +1281,10 @@ class ReviewViewController: UIViewController, UITextFieldDelegate, SubjectDelega
       markAnswer(.AskAgainLater)
       return
     }
+  }
+
+  func containerDidSwipeUp(_: SwipeableContainer) {
+    submit()
   }
 
   private func updateSwipeConfiguration() {
@@ -1297,6 +1299,7 @@ class ReviewViewController: UIViewController, UITextFieldDelegate, SubjectDelega
     config.isRightEnabled = true
     config.isLeftEnabled = true
     config.isDownEnabled = Settings.allowSkippingReviews
+    config.isUpEnabled = subjectDetailsView.isHidden
     swipeContainer.updateSwipeConfiguration(config)
   }
 
